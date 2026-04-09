@@ -5,20 +5,17 @@ TruthGuard AI is a terminal-based tool (TUI) designed to analyze news articles, 
 ## Features
 
 - **Terminal User Interface (TUI):** Interactive and responsive terminal UI built with [Textual](https://textual.textualize.io/).
-- **Dual Pipeline Analysis:**
-  - **Path 1 (Groq + News API):** Uses Llama 3 to extract structured data and search for supporting/contradicting articles via [NewsAPI](https://newsapi.org/).
-  - **Path 2 (Multi-LLM Synthesis):** Employs a sophisticated chain:
+- **Multi-LLM Synthesis Pipeline:** Employs a sophisticated chain for deep analysis:
     - **Llama 3:** For initial claim extraction and search prompt generation.
     - **GPT-OSS-120b:** For live web search and deep reasoning.
     - **Qwen-QwQ:** For final authoritative verdict synthesis.
 - **Credibility Assessment:** Automatically assigns trust scores and categorizes information (Real News, Misinformation, Disinformation, Malinformation).
-- **Rich Logging:** Real-time, formatted output of the analysis process.
+- **Rich Logging:** Real-time, formatted output of the analysis process with high-fidelity terminal coloring.
 
 ## Prerequisites
 
 - Python 3.11 or higher
 - [Groq API Key](https://console.groq.com/)
-- [NewsAPI Key](https://newsapi.org/register) (Required for Path 1)
 
 ## Local Installation
 
@@ -41,11 +38,10 @@ TruthGuard AI is a terminal-based tool (TUI) designed to analyze news articles, 
 
 ## Configuration
 
-Create a `.env` file in the root directory and add your API keys:
+Create a `.env` file in the root directory and add your Groq API key:
 
 ```env
 GROQ_API_KEY=your_groq_api_key_here
-NEWS_API_KEY=your_news_api_key_here
 ```
 
 ## Usage
@@ -57,23 +53,22 @@ python app.py
 ```
 
 ### Navigating the TUI
-- **API Selector:** Choose between the "Groq + News API" or "Llama -> GPT-OSS -> Qwen" pipelines.
 - **URL/Headline/Paragraph:** Enter the details of the article you want to validate.
-- **Submit:** Click the "Process Extraction" button to start the analysis.
-- **Logs:** View the step-by-step progress and final results in the log area.
+- **Submit:** Click the "Run Pipeline" button to start the analysis.
+- **Logs:** View the step-by-step progress and final results in the tri-panel log area.
 
 ## Running with Docker
 
 1. **Build the Docker image:**
    ```bash
-   docker build -t predictive-media-validator .
+   docker build -t truthguard-ai .
    ```
 
 2. **Run the container:**
    ```bash
-   docker run -it --env-file .env predictive-media-validator
+   docker run -it --env-file .env truthguard-ai
    ```
-   *Note: The `-it` flag is necessary for the TUI to function correctly.*
+   *Note: The `-it` flag is mandatory for the TUI to render correctly and handle keyboard input.*
 
 ## Project Structure
 
