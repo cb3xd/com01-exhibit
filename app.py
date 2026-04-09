@@ -82,7 +82,7 @@ Synthesize everything into a final authoritative verdict. Think step by step bef
 
 Return ONLY a valid JSON object — no markdown, no code blocks, no preamble. Schema:
 {
-  "verdict": "Real News | Misinformation | Disinformation | Malinformation",
+  "verdict": "Low Trust | Medium Trust | High Trust",
   "confidence": 85,
   "reasoning_steps": [
     "Step 1: ...",
@@ -472,10 +472,9 @@ class PreprocessorApp(App):
             return
 
         VERDICT_COLORS = {
-            "real news": "green",
-            "misinformation": "red",
-            "disinformation": "bright_red",
-            "malinformation": "dark_orange",
+            "high trust": "green",
+            "medium trust": "yellow",
+            "low trust": "red",
         }
         verdict: str = data.get("verdict", "Unknown")
         confidence = data.get("confidence", "?")
@@ -525,6 +524,25 @@ class PreprocessorApp(App):
             for c in caveats:
                 write_fn(Text.assemble(Text("  "), dim(f"• {c}")))
             write_fn(Text(""))
+
+        # Disclaimer
+        write_fn(Text(""))
+        write_fn(
+            bold_colored(
+                "───────────────────────────────────────────────────────────", "magenta"
+            )
+        )
+        write_fn(
+            colored(
+                "⚠ DISCLAIMER: The analysis above is entirely AI-generated.", "magenta"
+            )
+        )
+        write_fn(
+            colored(
+                "  LLMs can hallucinate information. Always Do Your Own Research (DYOR).",
+                "magenta",
+            )
+        )
 
     # ------------------------------------------------------------------
     # Main pipeline worker
