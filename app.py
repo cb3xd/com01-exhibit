@@ -59,34 +59,45 @@ Rules:
 - Do NOT ask for a structured output format
 - Output only the prompt text, nothing else"""
 
-# Qwen-QwQ final synthesis prompt
+# GPT-OSS is instructed to return structured JSON for clean TUI rendering
+GPT_OSS_SYSTEM_PROMPT = """You are a fact-checking AI with access to live web search. Research the claims in the user's query thoroughly.
+
+Return ONLY a valid JSON object — no markdown, no code blocks, no preamble. Schema:
+{
+  "verdict_preview": "One sentence gut-check verdict before deep analysis",
+  "search_summary": "2-3 sentence summary of what you searched for and found",
+  "key_findings": [
+    {"finding": "Specific verifiable claim or fact discovered", "supports_article": true}
+  ],
+  "sources": [
+    {"title": "Source name", "url": "https://...", "relevance": "Why this source matters"}
+  ],
+  "contradictions": ["Any claim in the article contradicted by sources"],
+  "reasoning": "Full step-by-step reasoning (3-5 sentences)"
+}"""
+
+# Qwen-QwQ final synthesis prompt — structured JSON for clean TUI rendering
 QWEN_SUMMARY_SYSTEM_PROMPT = """You are an expert media analyst and fact-checking specialist with deep reasoning capabilities. You will receive:
 1. The original article data (URL, headline, paragraph)
 2. An initial credibility assessment from Llama (trust score, category, claims, entities)
-3. A live web-searched fact-check report from GPT-OSS-120b, including its full reasoning and any cited sources
+3. A structured fact-check report from GPT-OSS-120b with sources and findings
 
-Your task is to synthesize all of this into a final, authoritative verdict. Think step by step before concluding:
-- Weigh the initial credibility signals against the live evidence found
-- Identify any contradictions or gaps in the fact-check
-- Consider source quality: who published each result and how credible are they?
-- Produce a final human-readable summary with a definitive verdict
+Synthesize everything into a final authoritative verdict. Think step by step before concluding.
 
-Output format — plain text, structured with clear sections:
-
-FINAL VERDICT: [Real News / Misinformation / Disinformation / Malinformation]
-CONFIDENCE: [0-100]
-
-REASONING:
-[Step-by-step breakdown of your analysis, referencing specific sources by name]
-
-SUMMARY:
-[2-3 paragraph plain-language explanation suitable for a general audience]
-
-KEY SOURCES:
-[List each decisive source as: * Title - URL (note why it matters)]
-
-CAVEATS:
-[Any limitations, unknowns, or areas requiring further investigation]"""
+Return ONLY a valid JSON object — no markdown, no code blocks, no preamble. Schema:
+{
+  "verdict": "Real News | Misinformation | Disinformation | Malinformation",
+  "confidence": 85,
+  "reasoning_steps": [
+    "Step 1: ...",
+    "Step 2: ..."
+  ],
+  "summary": "2-3 paragraph plain-language explanation for a general audience",
+  "key_sources": [
+    {"title": "Source name", "url": "https://...", "note": "Why it was decisive"}
+  ],
+  "caveats": ["Limitation or unknown that could affect the verdict"]
+}"""
 
 # ---------------------------------------------------------
 # NewsAPI Client (used by Path 1 only)
@@ -245,32 +256,133 @@ class PreprocessorApp(App):
             cleaned = cleaned[:-3]
         return cleaned.strip()
 
-    def stream_text_to_tui(self, stream, write_fn) -> str:
-        """
-        Consume a streaming Groq response token by token, printing live to the TUI.
-        Buffers per line and flushes on newline so the RichLog stays clean.
-        Returns the full concatenated response text.
-        """
-        full_text = []
-        current_line = []
+    def stream_collect(self, stream) -> str:
+        """Consume a streaming Groq response and return the full concatenated text."""
+        return "".join(chunk.choices[0].delta.content or "" for chunk in stream).strip()
 
-        def flush():
-            line = "".join(current_line).rstrip()
-            if line:
-                write_fn(line)
-            current_line.clear()
+    def render_gpt_response(self, raw: str, write_fn) -> str:
+        """Parse GPT-OSS JSON response and render it richly in the TUI."""
+        try:
+            data = json.loads(self.extract_json(raw))
+        except json.JSONDecodeError:
+            # Fallback: just stream the raw text line by line
+            write_fn(
+                "[yellow]⚠ Could not parse GPT-OSS response as JSON — showing raw output:[/yellow]"
+            )
+            for line in raw.splitlines():
+                if line.strip():
+                    write_fn(line)
+            return raw
 
-        for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            for ch in token:
-                if ch == "\n":
-                    flush()
-                else:
-                    current_line.append(ch)
-            full_text.append(token)
+        write_fn(
+            "[bold cyan]┌─ GPT-OSS FACT-CHECK ─────────────────────────────────────┐[/bold cyan]"
+        )
 
-        flush()  # catch any trailing content without a final newline
-        return "".join(full_text).strip()
+        if vp := data.get("verdict_preview"):
+            write_fn(f"[bold yellow]│ 🔍 INITIAL VERDICT PREVIEW[/bold yellow]")
+            write_fn(f"│  {vp}")
+            write_fn("│")
+
+        if ss := data.get("search_summary"):
+            write_fn(f"[bold yellow]│ 🌐 SEARCH SUMMARY[/bold yellow]")
+            for line in ss.splitlines():
+                write_fn(f"│  {line}")
+            write_fn("│")
+
+        if findings := data.get("key_findings"):
+            write_fn(f"[bold yellow]│ 📋 KEY FINDINGS[/bold yellow]")
+            for f_ in findings:
+                icon = (
+                    "[green]✔[/green]" if f_.get("supports_article") else "[red]✘[/red]"
+                )
+                write_fn(f"│  {icon} {f_.get('finding', '')}")
+            write_fn("│")
+
+        if contradictions := data.get("contradictions"):
+            write_fn(f"[bold red]│ ⚠ CONTRADICTIONS[/bold red]")
+            for c in contradictions:
+                write_fn(f"│  [red]• {c}[/red]")
+            write_fn("│")
+
+        if reasoning := data.get("reasoning"):
+            write_fn(f"[bold yellow]│ 🧠 REASONING[/bold yellow]")
+            for line in reasoning.splitlines():
+                write_fn(f"│  {line}")
+            write_fn("│")
+
+        if sources := data.get("sources"):
+            write_fn(f"[bold yellow]│ 🔗 SOURCES[/bold yellow]")
+            for s in sources:
+                write_fn(f"│  [bold]{s.get('title', 'Unknown')}[/bold]")
+                write_fn(f"│    [dim]{s.get('url', '')}[/dim]")
+                write_fn(f"│    {s.get('relevance', '')}")
+            write_fn("│")
+
+        write_fn(
+            "[bold cyan]└──────────────────────────────────────────────────────────┘[/bold cyan]"
+        )
+        return raw
+
+    def render_qwen_response(self, raw: str, write_fn):
+        """Parse Qwen JSON response and render it richly in the TUI."""
+        try:
+            data = json.loads(self.extract_json(raw))
+        except json.JSONDecodeError:
+            write_fn(
+                "[yellow]⚠ Could not parse Qwen response as JSON — showing raw output:[/yellow]"
+            )
+            for line in raw.splitlines():
+                if line.strip():
+                    write_fn(line)
+            return
+
+        VERDICT_COLORS = {
+            "real news": "green",
+            "misinformation": "red",
+            "disinformation": "bright_red",
+            "malinformation": "dark_orange",
+        }
+        verdict = data.get("verdict", "Unknown")
+        confidence = data.get("confidence", "?")
+        color = VERDICT_COLORS.get(verdict.lower(), "yellow")
+
+        write_fn(
+            f"[bold {color}]╔═ QWEN FINAL VERDICT ══════════════════════════════════════╗[/bold {color}]"
+        )
+        write_fn(f"[bold {color}]║  {verdict.upper():<55}║[/bold {color}]")
+        write_fn(
+            f"[bold {color}]║  Confidence: {confidence}/100{' ' * (44 - len(str(confidence)))}║[/bold {color}]"
+        )
+        write_fn(
+            f"[bold {color}]╚═══════════════════════════════════════════════════════════╝[/bold {color}]"
+        )
+        write_fn("")
+
+        if steps := data.get("reasoning_steps"):
+            write_fn("[bold yellow]🧠 REASONING STEPS[/bold yellow]")
+            for step in steps:
+                write_fn(f"  {step}")
+            write_fn("")
+
+        if summary := data.get("summary"):
+            write_fn("[bold yellow]📝 SUMMARY[/bold yellow]")
+            for line in summary.splitlines():
+                write_fn(f"  {line}")
+            write_fn("")
+
+        if sources := data.get("key_sources"):
+            write_fn("[bold yellow]🔗 KEY SOURCES[/bold yellow]")
+            for s in sources:
+                write_fn(f"  [bold]• {s.get('title', 'Unknown')}[/bold]")
+                write_fn(f"    [dim]{s.get('url', '')}[/dim]")
+                write_fn(f"    {s.get('note', '')}")
+            write_fn("")
+
+        if caveats := data.get("caveats"):
+            write_fn("[bold yellow]⚠ CAVEATS[/bold yellow]")
+            for c in caveats:
+                write_fn(f"  [dim]• {c}[/dim]")
+            write_fn("")
 
     @work(thread=True)
     def process_article(self, api_choice: str, url: str, headline: str, paragraph: str):
@@ -378,13 +490,14 @@ class PreprocessorApp(App):
                 gpt_user_prompt = prompt_gen.choices[0].message.content.strip()
                 write(f"[Llama -> GPT-OSS Prompt]\n{gpt_user_prompt}")
 
-                # --- STEP 2: GPT-OSS-120b live browser search + reasoning, streamed ---
+                # --- STEP 2: GPT-OSS-120b live browser search + structured JSON ---
                 write("\n[System] Step 2: GPT-OSS-120b searching and reasoning live...")
-                write("-" * 60)
+                write("[dim]⏳ Collecting response (this may take a moment)...[/dim]")
 
                 gpt_stream = groq_client.chat.completions.create(
                     model="openai/gpt-oss-120b",
                     messages=[
+                        {"role": "system", "content": GPT_OSS_SYSTEM_PROMPT},
                         {"role": "user", "content": gpt_user_prompt},
                     ],
                     temperature=1,
@@ -396,12 +509,12 @@ class PreprocessorApp(App):
                     tools=[{"type": "browser_search"}],
                 )
 
-                gpt_response = self.stream_text_to_tui(gpt_stream, write)
-                write("-" * 60)
+                gpt_response = self.stream_collect(gpt_stream)
+                self.render_gpt_response(gpt_response, write)
 
-                # --- STEP 3: Qwen-QwQ final verdict, also streamed ---
+                # --- STEP 3: Qwen-QwQ final verdict, structured JSON ---
                 write("\n[System] Step 3: Qwen-QwQ-32b synthesizing final verdict...")
-                write("=" * 60)
+                write("[dim]⏳ Collecting response (this may take a moment)...[/dim]")
 
                 qwen_user_prompt = (
                     f"ORIGINAL ARTICLE:\n"
@@ -413,9 +526,8 @@ class PreprocessorApp(App):
                     f"Category: {parsed_schema.get('information_category')}\n"
                     f"Claims: {'; '.join(parsed_schema.get('claims', []))}\n"
                     f"Entities: {'; '.join(parsed_schema.get('entities', []))}\n\n"
-                    f"GPT-OSS-120b FACT-CHECK (live web search):\n{gpt_response}\n\n"
-                    f"Synthesize everything into a final verdict. "
-                    f"Reference specific sources and include their URLs in your summary."
+                    f"GPT-OSS-120b FACT-CHECK RESULTS (JSON):\n{gpt_response}\n\n"
+                    f"Synthesize everything into a final verdict."
                 )
 
                 qwen_stream = groq_client.chat.completions.create(
@@ -429,11 +541,11 @@ class PreprocessorApp(App):
                     stream=True,
                 )
 
-                self.stream_text_to_tui(qwen_stream, write)
-                write("=" * 60)
+                qwen_response = self.stream_collect(qwen_stream)
+                self.render_qwen_response(qwen_response, write)
                 write(
-                    "\n[System] Pipeline complete. "
-                    "Llama -> schema | GPT-OSS-120b -> live search | Qwen-QwQ -> final verdict."
+                    "\n[dim][System] Pipeline complete: "
+                    "Llama → schema | GPT-OSS-120b → live search | Qwen-QwQ → final verdict.[/dim]"
                 )
 
         except json.JSONDecodeError as e:
