@@ -1,6 +1,6 @@
-# Predictive Media Validator
+# TruthGuard AI
 
-Predictive Media Validator is a terminal-based tool (TUI) designed to analyze news articles, extract key claims and entities, and perform automated fact-checking using advanced LLMs and live news data.
+TruthGuard AI is a terminal-based tool (TUI) designed to analyze news articles, extract key claims and entities, and perform automated fact-checking using advanced LLMs and live news data.
 
 ## Features
 
