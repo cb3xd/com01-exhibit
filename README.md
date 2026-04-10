@@ -9,7 +9,7 @@ TruthGuard AI is a terminal-based tool (TUI) designed to analyze news articles, 
     - **Llama 3:** For initial claim extraction and search prompt generation.
     - **GPT-OSS-120b:** For live web search and deep reasoning.
     - **Qwen-QwQ:** For final authoritative verdict synthesis.
-- **Credibility Assessment:** Automatically assigns trust scores and categorizes information (Real News, Misinformation, Disinformation, Malinformation).
+- **Credibility Assessment:** Automatically assigns trust scores and categorizes information.
 - **Rich Logging:** Real-time, formatted output of the analysis process with high-fidelity terminal coloring.
 
 ## Prerequisites
