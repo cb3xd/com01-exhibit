@@ -21,7 +21,7 @@ TruthGuard AI is a terminal-based tool (TUI) designed to analyze news articles, 
 
 1. **Clone the repository:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/cb3xd/com01-exhibit
    cd predictive-media-validator
    ```
 
